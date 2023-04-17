@@ -1,0 +1,417 @@
+################################################
+################################################
+# Chapter 1:    Create Azure Azure Environment
+#               - VNet 
+#               - Windows 11 Pro VM
+#               - Bastion Instance to RDP into VM
+################################################
+################################################
+
+################################################
+# Step 1.1:   Logon to Azure; Get, Set subscription
+################################################
+# Login to subscription
+az login
+
+# Register provider (just in case they aren't yet registered)
+az provider register `
+    --namespace 'Microsoft.Kubernetes'
+
+az provider register `
+    --namespace 'Microsoft.KubernetesConfiguration'
+
+az provider register `
+    --namespace 'Microsoft.ExtendedLocation'
+
+# Retrieve default subscription id
+$subscriptionId = (
+    (
+        az account list `
+            --query "[?isDefault]" 
+    ) | ConvertFrom-Json
+).id
+
+# Set Subscription
+az account set --subscription $subscriptionId
+
+################################################
+# Step 1.2:   Define project unifier
+################################################
+$random = Get-Random -Minimum 100 -Maximum 999
+
+################################################
+# Step 1.3:   Create Resource Group
+################################################
+$resourceGroup = "FTA.AKSEESample"
+$location = "WestEurope"
+
+az group create `
+    --location $location `
+    --resource-group $resourceGroup
+
+################################################
+# Step 1.4:   Create VNet + Bastion Sub Net
+################################################
+$vnetName = "AKSEESampleVNet"
+$vnetSubName = "default"
+$vnetAddressPrefixes = "10.0.0.0/16"
+$vnetSubAddressPrefix = "10.0.0.0/24"
+
+$subNetName = "AzureBastionSubnet"
+$subNetPrefixes = "10.0.1.0/26"
+
+az network vnet create `
+    --name $vnetName `
+    --resource-group $resourceGroup `
+    --address-prefixes $vnetAddressPrefixes `
+    --subnet-name $vnetSubName `
+    --subnet-prefix $vnetSubAddressPrefix
+
+az network vnet subnet create `
+    --name $subNetName `
+    --resource-group $resourceGroup `
+    --vnet-name $vnetName `
+    --address-prefixes $subNetPrefixes
+
+################################################
+# Step 1.5:   Create Public IP + Bastion
+################################################
+$ipName = "AKSEESampleIp"
+$bastionName = "AKSEESampleBastion"
+
+az network public-ip create `
+    --name $ipName `
+    --resource-group $resourceGroup `
+    --sku Standard
+
+az network bastion create `
+    --name $bastionName `
+    --public-ip-address $ipName `
+    --resource-group $resourceGroup `
+    --vnet-name $vnetName `
+    --location $location
+
+################################################
+# Step 1.6:   Create Windows 11 Host
+################################################
+$vmName = "AKSEESample$Random"
+$vmUserName = "azureuser"
+$vmUserPwd = "!!P@ssw0rd!!"
+$vmImage = "microsoftwindowsdesktop:windows-11:win11-22h2-pro:latest"
+$vmSize = "Standard_D4s_v3"
+
+az vm create `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --image $vmImage `
+    --vnet-name $vnetName `
+    --subnet $vnetSubName `
+    --size $vmSize `
+    --public-ip-sku Standard `
+    --admin-username $vmUserName `
+    --admin-password $vmUserPwd `
+    --public-ip-address '""'
+
+################################################
+# Step 1.7:   Enable Bastion RDP access 
+################################################
+az vm update `
+    --name $vmName `
+    --resource-group $resourceGroup `
+    --set identity.type='SystemAssigned'
+
+################################################
+################################################
+# Chapter 2:    Configure Win 11 Host
+#               - Enable Hyper-V
+#               - Download AKS EE
+#               - Set Execution Policy
+#               - Install AKS EE Host Features
+#               - Import Powershell Module(s)
+################################################
+################################################
+
+################################################
+# Step 2.1:   Enable Hyper-V on Windows 11 Host
+################################################
+$script = "Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -Confirm"
+$script = "ECHO Y | powershell Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+$script = "Restart-Computer -Force"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+# Step 2.2:   Download AKS EE
+################################################
+$aksEEUrl = "https://aka.ms/aks-edge/k3s-msi"
+$aksEEOutFile = "c:\k3s.msi"
+
+#Download K3s
+$script = "curl.exe -L -o $aksEEOutFile $aksEEUrl "
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+#Install AksEdge Module(s)
+$script = "msiexec.exe /i $aksEEOutFile"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+################################################
+# Step 2.3:   Set Execution Policy
+################################################
+$script = "Set-ExecutionPolicy Bypass -Scope Process -Force; Import-Module AksEdge"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+# Step 2.4:   Install AKS Edge Host Features
+################################################
+$script = "ECHO Y | powershell Install-AksEdgeHostFeatures"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+################################################
+# Chapter 3:    Create AKS Edge Configuration
+#               - Create Storage Account & Container (upload config file)
+#               - Create & upload AKS EE config
+#               - Download & execute AKS EE deployment
+################################################
+################################################
+
+################################################
+# Step 3.1:   Create storage account & Container 
+################################################
+$accountName = "aksconfig$random"
+$containerName = "aksconfig"
+
+az storage account create `
+    --name $accountName `
+    --resource-group $resourceGroup `
+    --location $location `
+    --sku Standard_RAGRS `
+    --kind StorageV2
+
+az storage container create `
+    --name $containerName `
+    --account-name $accountName
+
+
+################################################
+# Step 3.2:   Create & upload AKS EE config  
+################################################
+$configRemoteFile = "aksconfig.json"
+$configLocalFile = ".\src\CreateEnv\AksEEConfig\AksEEConfig.json"
+$configLocalFileTemplate = ".\src\CreateEnv\AksEEConfig\AksEEConfigTemplate.json"
+
+$aksEEConfig = Get-Content -Raw $configLocalFileTemplate | ConvertFrom-Json
+$aksEEConfig.User.AcceptEula = $true
+$aksEEConfig.User.AcceptOptionalTelemetry = $true
+$aksEEConfig.Init.ServiceIpRangeSize = 10
+Out-File -FilePath $ConfigLocalFile -InputObject ($aksEEConfig | ConvertTo-Json -Depth 10)
+
+az storage blob upload `
+    --account-name $accountName `
+    --container-name $containerName `
+    --name $configRemoteFile `
+    --file $configLocalFile `
+    --auth-mode key `
+    --connection-string $accountConnectionString `
+    --overwrite
+
+################################################
+# Step 3.3:   Download & execute AKS EE deployment  
+################################################
+$configExpiry = (Get-Date).AddHours(1).ToString("yyyy-MM-ddTHH:mmZ")
+$configHost = "c:\AksEEConfig.json"
+
+$accountConnectionString = (
+    az storage account show-connection-string `
+        --name $accountName `
+        --resource-group $resourceGroup `
+        --output tsv `
+)
+
+$accountKey = (
+    az storage account keys list `
+        --resource-group $resourceGroup `
+        --account-name $accountName `
+        --query [0].value `
+        --output tsv `
+)
+
+$configUri = ( `
+    az storage blob generate-sas `
+        --account-name $accountName `
+        --account-key $accountKey `
+        --container-name $containerName `
+        --name $configRemoteFile `
+        --permissions acdrw `
+        --full-uri `
+        --expiry $configExpiry `
+        --output tsv `
+)
+
+$script = "Invoke-webrequest -URI '$configUri' -OutFile $configHost"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+$script = "ECHO Y | Powershell New-AksEdgeDeployment -JsonConfigFilePath $configHost"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+################################################
+# Chapter 4:    Arc-enable AKS EE
+#               - Install Powershell modules to Arc Enable AKS Edge Essential
+#               - Create Service Principal to Arc enable AKS EE
+#               - Update config file to Arc enable AKS EE
+#               - Upload/download config file to/from Blob
+#               - Connect AKS EE to Azure management tools
+#               - List AKS EE as Arc enabled K8s
+################################################
+################################################
+
+################################################
+# Step 4.1:  Install Powershell modules to Arc Enable AKS Edge Essential  
+################################################
+$script = "ECHO Y | Powershell Install-Module Az.Resources -Repository PSGallery -Force -AllowClobber -ErrorAction Stop"  
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+$script = "ECHO Y | Powershell Install-Module Az.Accounts -Repository PSGallery -Force -AllowClobber -ErrorAction Stop" 
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+$script = "ECHO Y | Powershell Install-Module Az.ConnectedKubernetes -Repository PSGallery -Force -AllowClobber -ErrorAction Stop"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+################################################
+# Step 4.2:   Create Service Principal to Arc enable AKS EE  
+################################################
+$principalName = "RobEichAksArcEnable"
+$principalScope = "/subscriptions/$subscriptionId"
+$principalRole = "Contributor"
+
+$principalInfo = ( `
+    az ad sp create-for-rbac `
+        --display-name $principalName `
+        --role $principalRole `
+        --scopes $principalScope
+)
+
+################################################
+# Step 4.3:   Update config file to Arc enable AKS EE  
+################################################
+$principalAppId = ($principalInfo | ConvertFrom-Json).appId
+$principalPassword = ($principalInfo | ConvertFrom-Json).password
+$principalTenant = ($principalInfo | ConvertFrom-Json).tenant
+$configClusterName = "AksEE$Random"
+
+$aksEEConfig = Get-Content .\src\CreateEnv\AksEEConfig\AksEEConfig.json | ConvertFrom-Json
+$aksEEConfig.Arc.ClusterName = $configClusterName
+$aksEEConfig.Arc.Location = $location
+$aksEEConfig.Arc.ResourceGroupName = $resourceGroup
+$aksEEConfig.Arc.SubscriptionId = $subscriptionId
+$aksEEConfig.Arc.TenantId = $principalTenant
+$aksEEConfig.Arc.ClientId = $principalAppId
+$aksEEConfig.Arc.ClientSecret = $principalPassword
+
+Out-File -FilePath $ConfigLocalFile -InputObject ($aksEEConfig | ConvertTo-Json -Depth 10)
+
+################################################
+# Step 4.4:   Upload/download config file to/from Blob 
+################################################
+az storage blob upload `
+    --account-name $accountName `
+    --container-name $containerName `
+    --name $configRemoteFile `
+    --file $configLocalFile `
+    --auth-mode key `
+    --connection-string $accountConnectionString `
+    --overwrite
+
+$script = "Invoke-webrequest -URI '$configUri' -OutFile $configHost"
+
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+# Step 4.5:   Connect AKS EE to Azure  
+################################################
+$script = "ECHO Y | Powershell Connect-AksEdgeArc -JsonConfigFilePath $configHost"
+
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+
+################################################
+# Step 4.6:   List AKS EE Kubernetes  
+################################################
+az connectedk8s list
+
+
+################################################
+################################################
+# Chapter 5:    Housekeeping
+#               - Delete Service Principal
+#               - Delete Resource Group 
+################################################
+################################################
+
+################################################
+# Step 5.1:   Delete Azure Resources  
+################################################
+az ad sp delete `
+    --id $principalAppId
+
+az group delete `
+    --resource-group $resourceGroup
