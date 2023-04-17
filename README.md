@@ -16,6 +16,6 @@ Microsoft supports the ***entire software stack from kernel to cloud***.
 
 ## Repo Content
 
-[The Powershell script in this repo](src/CreateEnv/README.md) uses the Azure CLI to create a single machine deployment with a K3s control plane and a linux worker.
+[The Powershell script in this repo](src/CreateEnv) uses the Azure CLI to create a single machine deployment with a K3s control plane and a linux worker.
 
 After successfully installing AKS EE on a VM (running Windows 11 Pro) AKS EE will be Arc-enabled and can be maintained, monitored ... from the Azure Portal. 
