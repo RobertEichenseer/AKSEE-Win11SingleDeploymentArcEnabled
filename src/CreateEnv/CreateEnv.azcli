@@ -220,6 +220,12 @@ az storage container create `
     --name $containerName `
     --account-name $accountName
 
+$accountConnectionString = (
+    az storage account show-connection-string `
+        --name $accountName `
+        --resource-group $resourceGroup `
+        --output tsv `
+)
 
 ################################################
 # Step 3.2:   Create & upload AKS EE config  
@@ -248,13 +254,6 @@ az storage blob upload `
 ################################################
 $configExpiry = (Get-Date).AddHours(1).ToString("yyyy-MM-ddTHH:mmZ")
 $configHost = "c:\AksEEConfig.json"
-
-$accountConnectionString = (
-    az storage account show-connection-string `
-        --name $accountName `
-        --resource-group $resourceGroup `
-        --output tsv `
-)
 
 $accountKey = (
     az storage account keys list `
@@ -330,7 +329,7 @@ az vm run-command invoke `
 ################################################
 # Step 4.2:   Create Service Principal to Arc enable AKS EE  
 ################################################
-$principalName = "RobEichAksArcEnable"
+$principalName = "ArcEnable"
 $principalScope = "/subscriptions/$subscriptionId"
 $principalRole = "Contributor"
 
@@ -402,10 +401,29 @@ az connectedk8s list
 ################################################
 ################################################
 # Chapter 5:    Housekeeping
+#               - Optional: Delete AKS EE Deployment
 #               - Delete Service Principal
 #               - Delete Resource Group 
 ################################################
 ################################################
+
+################################################
+# Step 5.0.1:   (Optional) Delete AKSEE deployment only 
+################################################
+
+$script = "ECHO Y | Powershell Disconnect-AksEdgeArc -JsonConfigFilePath $configHost"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
+$script = "ECHO Y | Powershell Remove-AksEdgeDeployment -Force"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
 
 ################################################
 # Step 5.1:   Delete Azure Resources  
@@ -415,3 +433,4 @@ az ad sp delete `
 
 az group delete `
     --resource-group $resourceGroup
+
