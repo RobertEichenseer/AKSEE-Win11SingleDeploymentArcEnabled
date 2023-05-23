@@ -9,7 +9,7 @@ In chapter 1 the basic Azure Environment will be created. It consists of:
 - ***C***: A Windows 11 VM. AKS EE will be installed on this VM
 - ***D***: A Bastion instance to connect securely to the Windows 11 VM as it does not expose any public endpoint.
 ![BasicSetup](media/img/BasicSetup.png)
-
+![](2023-04-19-07-25-09.png)
 ### Step 1.1
 
 ```Powershell
@@ -132,9 +132,10 @@ az vm update `
 ## Chapter 2
 
 In chapter 2 the newly created Win11 VM will be configured:
-  -***A***: Enable Hyper-V on the VM
-  -***B***: Download AKS EE
-  -***C***: Install AKS EE Host Features
+
+- ***A***: Enable Hyper-V on the VM
+- ***B***: Download AKS EE
+- ***C***: Install AKS EE Host Features
 
 ![Configure VM](media/img/ConfigureVM.png)
 
@@ -214,10 +215,10 @@ az vm run-command invoke `
 
 Create AKS Edge configuration & execute AKS EE deployment:
 
-- ***A:***: Create Storage Account & Container
-- ***B:***: Create AKS EE config
-- ***C:***: Upload AKS EE config to Storage Account
-- ***D:***: Download AKS EE config & execute AKS EE deployment
+- ***A***: Create Storage Account & Container
+- ***B***: Create AKS EE config
+- ***C***: Upload AKS EE config to Storage Account
+- ***D***: Download AKS EE config & execute AKS EE deployment
 
 ![Install AKS EE](media/img/ConfigInstallAKSEE.png)
 
@@ -443,9 +444,18 @@ az vm run-command invoke `
 
 ```Powershell
 az connectedk8s list
+
+# Create kube config to connect using kubectl on the VM (optional)
+$script = "ECHO Y | Powershell Get-AksEdgeKubeConfig"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
 ```
 
 - Show Arc-enabled K8s/K3s installations. The AKS EE installation will be shown.
+- Optional step to create Kube Config in the users .\Kube folder to use ```kubectl``` on the Win11 VM.
 
 ## Chapter 5
 
@@ -455,9 +465,17 @@ Housekeeping
 az ad sp delete `
     --id $principalAppId
 
+$script = "ECHO Y | Powershell Disconnect-AksEdgeArc -JsonConfigFilePath $configHost"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
 az group delete `
     --resource-group $resourceGroup
 ```
 
 - Delete Service Principal
+- Disconnect AKS EE from Azure Arc
 - Delete Resource Group hosting all Azure resources

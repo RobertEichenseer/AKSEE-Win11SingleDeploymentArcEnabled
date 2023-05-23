@@ -397,6 +397,14 @@ az vm run-command invoke `
 ################################################
 az connectedk8s list
 
+# Create kube config to connect using kubectl on the VM (optional)
+$script = "ECHO Y | Powershell Get-AksEdgeKubeConfig"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
+
 
 ################################################
 ################################################
@@ -430,7 +438,13 @@ az vm run-command invoke `
 ################################################
 az ad sp delete `
     --id $principalAppId
+    
+$script = "ECHO Y | Powershell Disconnect-AksEdgeArc -JsonConfigFilePath $configHost"
+az vm run-command invoke `
+    --resource-group $resourceGroup `
+    --name $vmName `
+    --command-id RunPowerShellScript `
+    --scripts $script
 
 az group delete `
     --resource-group $resourceGroup
-
