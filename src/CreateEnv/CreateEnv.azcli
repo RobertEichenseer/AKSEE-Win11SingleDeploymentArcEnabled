@@ -90,6 +90,7 @@ az network bastion create `
     --resource-group $resourceGroup `
     --vnet-name $vnetName `
     --location $location
+    --sku Basic
 
 ################################################
 # Step 1.6:   Create Windows 11 Host
