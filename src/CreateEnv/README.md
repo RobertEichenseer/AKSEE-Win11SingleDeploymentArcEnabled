@@ -36,7 +36,7 @@ $random = Get-Random -Minimum 100 -Maximum 999
 ### Step 1.3
 
 ```Powershell
-$resourceGroup = "FTA.AKSEESample"
+$resourceGroup = "FTA.AKSEESample$Random"
 $location = "WestEurope"
 
 az group create `
