@@ -384,23 +384,6 @@ az vm run-command invoke `
 ################################################
 # Step 4.5:   Connect AKS EE to Azure  
 ################################################
-
-$script = "ECHO Y | Powershell Install-Module -Name Az.Aks"
-
-az vm run-command invoke `
-    --resource-group $resourceGroup `
-    --name $vmName `
-    --command-id RunPowerShellScript `
-    --scripts $script
-
-$script = "ECHO Y | Powershell Install-AzAksCliTool"
-
-az vm run-command invoke `
-    --resource-group $resourceGroup `
-    --name $vmName `
-    --command-id RunPowerShellScript `
-    --scripts $script
-
 $script = "ECHO Y | Powershell Connect-AksEdgeArc -JsonConfigFilePath $configHost"
 
 az vm run-command invoke `
